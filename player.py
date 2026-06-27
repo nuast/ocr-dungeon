@@ -17,6 +17,8 @@ from settings import (
     SCREEN_WIDTH,
     SPELL_COST,
     SPELL_DAMAGE,
+    SPELL_EFFECT_COLOR,
+    SPELL_EFFECT_DURATION_FRAMES,
     SPELL_RANGE,
 )
 
@@ -32,6 +34,7 @@ class Player(Entity):
         super().__init__(x, y, PLAYER_SIZE, PLAYER_SPEED, PLAYER_MAX_HEALTH, PLAYER_COLOR)
         self._mana = PLAYER_MAX_MANA
         self._max_mana = PLAYER_MAX_MANA
+        self._spell_effect = SpellCastEffect()
 
         # Placeholder sprite for now.
         # Later load Piskel sprite, for example: assets/player.png
@@ -45,6 +48,11 @@ class Player(Entity):
     def max_mana(self) -> int:
         """Return maximum mana value."""
         return self._max_mana
+
+    @property
+    def has_active_spell_effect(self) -> bool:
+        """Return True while the cast visual is still animating."""
+        return self._spell_effect.is_active
 
     def cast_spell(self, enemies: list[Entity]) -> bool:
         """Spend mana to damage the nearest enemy within range.
@@ -68,6 +76,7 @@ class Player(Entity):
             return False
 
         self._mana -= SPELL_COST
+        self._spell_effect.trigger(nearest_enemy.rect.center)
         nearest_enemy.take_damage(SPELL_DAMAGE)
         return True
 
@@ -94,3 +103,57 @@ class Player(Entity):
         # Very simple passive mana regeneration.
         if self._mana < self._max_mana:
             self._mana += 1
+        self._spell_effect.tick()
+
+    def draw(self, surface: pygame.Surface) -> None:
+        """Draw the player and any active spell cast visual."""
+        super().draw(surface)
+        self._spell_effect.draw(surface, self.rect.center)
+
+
+class SpellCastEffect:
+    """Small retro spell visual that animates for a few frames."""
+
+    def __init__(self) -> None:
+        """Initialise an inactive visual effect."""
+        self._target: tuple[int, int] | None = None
+        self._frames_left = 0
+        self._duration_frames = SPELL_EFFECT_DURATION_FRAMES
+        self._color = SPELL_EFFECT_COLOR
+
+    @property
+    def is_active(self) -> bool:
+        """Return True while the effect should be drawn."""
+        return self._target is not None and self._frames_left > 0
+
+    def trigger(self, target: tuple[int, int]) -> None:
+        """Start the visual animation toward the spell target."""
+        self._target = target
+        self._frames_left = self._duration_frames
+
+    def tick(self) -> None:
+        """Advance animation by one frame."""
+        if self._frames_left <= 0:
+            self._target = None
+            return
+        self._frames_left -= 1
+        if self._frames_left == 0:
+            self._target = None
+
+    def draw(self, surface: pygame.Surface, origin: tuple[int, int]) -> None:
+        """Render a fading retro beam and target marker."""
+        if not self.is_active or self._target is None:
+            return
+
+        progress = self._frames_left / self._duration_frames
+        beam_width = max(1, int(4 * progress))
+        marker_size = max(4, int(10 * progress))
+        marker_rect = pygame.Rect(
+            self._target[0] - marker_size // 2,
+            self._target[1] - marker_size // 2,
+            marker_size,
+            marker_size,
+        )
+
+        pygame.draw.line(surface, self._color, origin, self._target, beam_width)
+        pygame.draw.rect(surface, self._color, marker_rect, width=1)
